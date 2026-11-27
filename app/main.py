@@ -88,6 +88,7 @@ def main():
     ap.add_argument("--source", choices=["apod", "nasa", "all"], default="all")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--backfill", action="store_true", help="첫 실행에도 NASA 기존 게시물을 올림")
+    ap.add_argument("--url", default="", help="science.nasa.gov APOD 글 주소 하나만 처리")
     args = ap.parse_args()
 
     st = load_state()
@@ -97,7 +98,14 @@ def main():
         print(f"[Figma] 동기화 실패, 기존 템플릿 사용: {e}")
 
     done = 0
-    for item in collect(args.source, st, args.backfill):
+    if args.url:
+        one = sources.fetch_apod_article(args.url)
+        targets = [one] if one else []
+        if not one:
+            print(f"[URL] 읽을 수 없는 주소입니다: {args.url}")
+    else:
+        targets = collect(args.source, st, args.backfill)
+    for item in targets:
         if done >= config.MAX_POSTS_PER_RUN:
             break
         if not args.dry_run and posted_today(st) >= config.MAX_POSTS_PER_DAY:
