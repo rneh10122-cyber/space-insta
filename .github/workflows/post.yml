@@ -1,0 +1,77 @@
+name: space-insta 자동 게시
+
+on:
+  schedule:
+    - cron: "7 12 * * *"      # 매일 21:07 (한국시간) APOD 게시
+    - cron: "17 */2 * * *"    # 2시간마다 NASA 인스타 새 게시물 확인
+  workflow_dispatch:          # Actions 탭에서 직접 실행
+    inputs:
+      source:
+        description: "apod / nasa / all"
+        default: "all"
+      dry_run:
+        description: "true 면 게시하지 않고 결과 이미지만 확인"
+        default: "true"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: space-insta
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 한글 폰트와 라이브러리 설치
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk
+          pip install -q -r requirements.txt
+
+      - name: 실행
+        env:
+          NASA_API_KEY: ${{ secrets.NASA_API_KEY }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          WP_URL: ${{ secrets.WP_URL }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+          FIGMA_FILE_KEY: ${{ secrets.FIGMA_FILE_KEY }}
+          FIGMA_TEMPLATE_NODE: ${{ secrets.FIGMA_TEMPLATE_NODE }}
+        run: |
+          SOURCE="all"; DRY=""
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "${{ github.event.schedule }}" = "7 12 * * *" ]; then SOURCE="apod"; else SOURCE="nasa"; fi
+          else
+            SOURCE="${{ github.event.inputs.source }}"
+            if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then DRY="--dry-run"; fi
+          fi
+          python -m app.main --source "$SOURCE" $DRY
+
+      - name: 결과 이미지 보관 (Actions 실행 화면에서 내려받기)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: out
+          path: out/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: 게시 기록 저장
+        if: always()
+        run: |
+          git config user.name "space-insta-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add state.json 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "게시 기록 업데이트" && git push)
