@@ -42,7 +42,8 @@ GRAPH_VERSION = env("GRAPH_VERSION", "v25.0")
 OPENAI_API_KEY = env("OPENAI_API_KEY")
 OPENAI_MODEL = env("OPENAI_MODEL", "gpt-4o-mini")
 
-# 이미지 호스팅 (워드프레스 미디어 업로드)
+# 이미지 호스팅: github(공개 저장소의 posted/ 폴더, 기본) 또는 wordpress
+IMAGE_HOST = env("IMAGE_HOST", "github")
 WP_URL = env("WP_URL")  # 예: https://example.com
 WP_USER = env("WP_USER")
 WP_APP_PASSWORD = env("WP_APP_PASSWORD")
