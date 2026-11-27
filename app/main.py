@@ -74,7 +74,7 @@ def process(item, dry_run, st):
         print("  (dry-run: 게시하지 않음, out/ 폴더 확인)")
         return False
 
-    url = publish.upload_to_wordpress(jpeg, f"{item.id}.jpg")
+    url = publish.host_image(jpeg, f"{item.id}.jpg")
     media_id = publish.publish_image(url, caption)
     st["seen"][item.id] = "게시 완료"
     st["posts"].append({"id": item.id, "media_id": media_id, "title": post["title"],
