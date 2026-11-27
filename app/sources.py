@@ -115,17 +115,24 @@ def fetch_apod_web(limit: int = 5) -> list[Item]:
         u = u.rstrip("/") + "/"
         if u not in links:
             links.append(u)
+    from datetime import timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%d")
     items = []
     for u in links[:limit]:
-        try:
-            a = requests.get(u, headers=UA, timeout=30)
-            a.raise_for_status()
-            it = parse_apod_article(u, a.text)
-            if it:
-                items.append(it)
-        except Exception as e:
-            print(f"[APOD] {u} 읽기 실패: {e}")
+        it = fetch_apod_article(u)
+        if it and it.timestamp >= cutoff:  # 열흘 넘은 옛날 게시물은 쓰지 않음
+            items.append(it)
     return items
+
+
+def fetch_apod_article(u: str) -> Item | None:
+    try:
+        a = requests.get(u, headers=UA, timeout=30)
+        a.raise_for_status()
+        return parse_apod_article(u, a.text)
+    except Exception as e:
+        print(f"[APOD] {u} 읽기 실패: {e}")
+        return None
 
 
 def fetch_apod_all() -> list[Item]:
