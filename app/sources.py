@@ -45,6 +45,108 @@ def fetch_apod(date: str | None = None) -> Item | None:
     )
 
 
+MONTHS = {m: i for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july", "august",
+     "september", "october", "november", "december"], 1)}
+UA = {"User-Agent": "Mozilla/5.0 (space-insta)"}
+
+
+def _meta(html, prop):
+    import html as h
+    import re
+    m = re.search(r'<meta[^>]+(?:property|name)=["\']%s["\'][^>]*content=["\']([^"\']*)' % re.escape(prop), html, re.I) \
+        or re.search(r'<meta[^>]+content=["\']([^"\']*)["\'][^>]*(?:property|name)=["\']%s["\']' % re.escape(prop), html, re.I)
+    return h.unescape(m.group(1)).strip() if m else ""
+
+
+def _plain(html):
+    import html as h
+    import re
+    html = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html)
+    html = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</li>|</h\d>", "\n", html)
+    txt = h.unescape(re.sub(r"<[^>]+>", " ", html))
+    return re.sub(r"[ \t\xa0]+", " ", re.sub(r"\n\s*\n+", "\n", txt)).strip()
+
+
+def parse_apod_article(url: str, html: str) -> Item | None:
+    """science.nasa.gov 의 APOD 상세 페이지에서 제목, 이미지, 출처, 설명을 뽑습니다."""
+    import re
+    m = re.search(r"/apod-(\d{4})-([a-z]+)-(\d{1,2})-", url)
+    if not m or m.group(2) not in MONTHS:
+        return None
+    day = f"{m.group(1)}-{MONTHS[m.group(2)]:02d}-{int(m.group(3)):02d}"
+    image = _meta(html, "og:image")
+    if not image:
+        im = re.search(r'https://assets\.science\.nasa\.gov/[^"\'\s>]+?\.(?:jpe?g|png)', html, re.I)
+        image = im.group(0) if im else ""
+    if not image or re.search(r"youtube|vimeo|\.mp4", image, re.I):
+        return None
+    image = image.split("?")[0]  # 원본 크기로
+    title = re.sub(r"\s*[-|]\s*NASA Science\s*$", "", _meta(html, "og:title")).strip()
+    text = _plain(html)
+    expl = ""
+    em = re.search(r"Explanation:?\s*(.+?)(?:\n\s*(?:Tomorrow|Authors?|Editors?|Share|Keep Exploring)\b|$)", text, re.S)
+    if em:
+        expl = em.group(1).strip()
+    expl = expl or _meta(html, "og:description") or _meta(html, "description")
+    cm = re.search(r"((?:Image|Video|Illustration)?\s*Credits?(?:\s*(?:&|and)\s*Copyright)?|Copyright)\s*:?\s*([^\n]{2,200})", text, re.I)
+    if not cm:
+        # 출처를 확인할 수 없으면 쓰지 않도록 제3자 저작물로 취급
+        return Item(id=f"apod-{day}", source="apod", image_url=image, text=title, permalink=url,
+                    copyright="출처 확인 불가", credit_raw="", timestamp=day)
+    label, credit = cm.group(1), re.sub(r"\s+,", ",", cm.group(2)).strip()
+    head = text[: (em.end() if em else len(text))]  # 설명까지의 본문 영역
+    copyrighted = bool(re.search(r"copyright|©", label + " " + credit + " " + head, re.I))
+    return Item(
+        id=f"apod-{day}", source="apod", image_url=image,
+        text=f"{title}\n\n{expl}", permalink=url,
+        copyright=credit if copyrighted else "",
+        credit_raw=credit, timestamp=day, extra={"title_en": title},
+    )
+
+
+def fetch_apod_web(limit: int = 5) -> list[Item]:
+    """APOD가 science.nasa.gov/apod 로 옮겨져서, API가 안 될 때 웹 페이지에서 최근 게시물을 읽습니다."""
+    import re
+    r = requests.get("https://science.nasa.gov/apod/", headers=UA, timeout=30)
+    r.raise_for_status()
+    links = []
+    for u in re.findall(r'https://science\.nasa\.gov/image-article/apod-\d{4}-[a-z]+-\d{1,2}-[^"\'\s<>#?]+', r.text):
+        u = u.rstrip("/") + "/"
+        if u not in links:
+            links.append(u)
+    items = []
+    for u in links[:limit]:
+        try:
+            a = requests.get(u, headers=UA, timeout=30)
+            a.raise_for_status()
+            it = parse_apod_article(u, a.text)
+            if it:
+                items.append(it)
+        except Exception as e:
+            print(f"[APOD] {u} 읽기 실패: {e}")
+    return items
+
+
+def fetch_apod_all() -> list[Item]:
+    """API(오늘 것) + 웹(최근 며칠)을 합쳐 최신순으로 돌려줍니다."""
+    items = {}
+    for attempt in range(2):
+        try:
+            it = fetch_apod()
+            if it:
+                items[it.id] = it
+            break
+        except Exception as e:
+            print(f"[APOD] API 실패({attempt + 1}/2): {e}")
+    try:
+        for it in fetch_apod_web():
+            items.setdefault(it.id, it)
+    except Exception as e:
+        print(f"[APOD] 웹 페이지 읽기 실패: {e}")
+    return sorted(items.values(), key=lambda x: x.timestamp, reverse=True)
+
+
 def fetch_nasa_instagram(limit: int = 8) -> list[Item]:
     """Business Discovery API로 NASA 계정의 최근 게시물을 가져옵니다. 이미지(또는 캐러셀 첫 이미지)만 사용합니다."""
     fields = (
