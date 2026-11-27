@@ -12,6 +12,9 @@ on:
       dry_run:
         description: "true 면 게시하지 않고 결과 이미지만 확인"
         default: "true"
+      url:
+        description: "(선택) science.nasa.gov APOD 글 주소 하나만 처리"
+        default: ""
 
 permissions:
   contents: write
@@ -57,7 +60,8 @@ jobs:
             SOURCE="${{ github.event.inputs.source }}"
             if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then DRY="--dry-run"; fi
           fi
-          python -m app.main --source "$SOURCE" $DRY
+          URL="${{ github.event.inputs.url }}"
+          python -m app.main --source "$SOURCE" $DRY ${URL:+--url "$URL"}
 
       - name: 결과 이미지 보관 (Actions 실행 화면에서 내려받기)
         if: always()
