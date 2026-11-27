@@ -24,6 +24,37 @@ def upload_to_wordpress(jpeg: bytes, filename: str) -> str:
     return r.json()["source_url"]
 
 
+def upload_to_github(jpeg: bytes, filename: str) -> str:
+    """공개 GitHub 저장소의 posted/ 폴더에 이미지를 올리고 공개 주소를 돌려줍니다 (Actions 안에서 실행)."""
+    import os
+    import subprocess
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not repo:
+        raise SystemExit("[설정 오류] GITHUB_REPOSITORY 가 없습니다. GitHub Actions 안에서 실행하거나 IMAGE_HOST=wordpress 를 쓰세요.")
+    branch = os.environ.get("GITHUB_REF_NAME") or "main"
+    folder = config.ROOT / "posted"
+    folder.mkdir(exist_ok=True)
+    (folder / filename).write_bytes(jpeg)
+    git = lambda *a: subprocess.run(["git", *a], cwd=config.ROOT, check=True, capture_output=True, text=True)
+    git("config", "user.name", "space-insta-bot")
+    git("config", "user.email", "bot@users.noreply.github.com")
+    git("add", f"posted/{filename}")
+    git("commit", "-m", f"게시 이미지 {filename}")
+    git("push", "origin", f"HEAD:{branch}")
+    url = f"https://raw.githubusercontent.com/{repo}/{branch}/posted/{filename}"
+    for _ in range(20):  # 공개 주소에서 열릴 때까지 최대 1분 대기
+        if requests.head(url, timeout=15).status_code == 200:
+            return url
+        time.sleep(3)
+    raise RuntimeError(f"이미지 공개 주소가 열리지 않습니다: {url} (저장소가 공개인지 확인하세요)")
+
+
+def host_image(jpeg: bytes, filename: str) -> str:
+    if config.IMAGE_HOST == "wordpress":
+        return upload_to_wordpress(jpeg, filename)
+    return upload_to_github(jpeg, filename)
+
+
 def _graph(path):
     return f"https://graph.facebook.com/{config.GRAPH_VERSION}/{path}"
 
