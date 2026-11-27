@@ -34,9 +34,7 @@ def collect(source, st, backfill):
     items = []
     if source in ("apod", "all"):
         try:
-            it = sources.fetch_apod()
-            if it:
-                items.append(it)
+            items.extend(sources.fetch_apod_all())  # 최신순, 저작권 있는 날은 건너뛰고 다음 것을 씀
         except Exception as e:
             print(f"[APOD] 가져오기 실패: {e}")
     if source in ("nasa", "all"):
